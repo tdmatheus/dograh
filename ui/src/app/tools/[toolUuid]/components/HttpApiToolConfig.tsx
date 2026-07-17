@@ -4,6 +4,8 @@ import type { RecordingResponseSchema } from "@/client/types.gen";
 import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import {
     CredentialSelector,
+    GraphqlQueryEditor,
+    GraphqlVariablesPreview,
     type HttpMethod,
     HttpMethodSelector,
     KeyValueEditor,
@@ -193,13 +195,13 @@ export function HttpApiToolConfig({
                                     in the Parameters tab) are sent as GraphQL variables — reference
                                     them as $variableName with matching names.
                                 </Label>
-                                <Textarea
+                                <GraphqlQueryEditor
                                     value={graphqlQuery}
-                                    onChange={(e) => onGraphqlQueryChange(e.target.value)}
+                                    onValueChange={onGraphqlQueryChange}
                                     placeholder={"mutation($id: ID!) {\n  book(id: $id) { ok }\n}"}
                                     rows={8}
-                                    className="font-mono text-sm"
                                 />
+                                <GraphqlVariablesPreview parameters={parameters} />
                             </div>
                         )}
 

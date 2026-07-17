@@ -14,6 +14,7 @@ import {
     type ToolParameter,
     UrlInput,
 } from "@/components/http";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +28,10 @@ export interface HttpApiToolConfigProps {
     onDescriptionChange: (description: string) => void;
     httpMethod: HttpMethod;
     onHttpMethodChange: (method: HttpMethod) => void;
+    bodyType: 'json' | 'graphql';
+    onBodyTypeChange: (bodyType: 'json' | 'graphql') => void;
+    graphqlQuery: string;
+    onGraphqlQueryChange: (query: string) => void;
     url: string;
     onUrlChange: (url: string) => void;
     credentialUuid: string;
@@ -55,6 +60,10 @@ export function HttpApiToolConfig({
     onDescriptionChange,
     httpMethod,
     onHttpMethodChange,
+    bodyType,
+    onBodyTypeChange,
+    graphqlQuery,
+    onGraphqlQueryChange,
     url,
     onUrlChange,
     credentialUuid,
@@ -121,9 +130,15 @@ export function HttpApiToolConfig({
                             <div className="grid gap-2">
                                 <Label>HTTP Method</Label>
                                 <HttpMethodSelector
-                                    value={httpMethod}
+                                    value={bodyType === 'graphql' ? 'POST' : httpMethod}
                                     onChange={onHttpMethodChange}
+                                    disabled={bodyType === 'graphql'}
                                 />
+                                {bodyType === 'graphql' && (
+                                    <Label className="text-xs text-muted-foreground">
+                                        GraphQL requests are always sent as POST.
+                                    </Label>
+                                )}
                             </div>
                             <div className="grid gap-2">
                                 <Label>Timeout (ms)</Label>
@@ -140,6 +155,27 @@ export function HttpApiToolConfig({
                         </div>
 
                         <div className="grid gap-2">
+                            <Label>Body Type</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Choose JSON to send parameters as a plain JSON body, or GraphQL to
+                                send a GraphQL query/mutation. GraphQL always uses POST.
+                            </Label>
+                            <div className="flex gap-2">
+                                {(['json', 'graphql'] as const).map((bt) => (
+                                    <Button
+                                        key={bt}
+                                        type="button"
+                                        variant={bodyType === bt ? 'default' : 'outline'}
+                                        size="sm"
+                                        onClick={() => onBodyTypeChange(bt)}
+                                    >
+                                        {bt === 'json' ? 'JSON' : 'GraphQL'}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="grid gap-2">
                             <Label>Endpoint URL</Label>
                             <UrlInput
                                 value={url}
@@ -148,6 +184,24 @@ export function HttpApiToolConfig({
                                 showValidation
                             />
                         </div>
+
+                        {bodyType === 'graphql' && (
+                            <div className="grid gap-2">
+                                <Label>GraphQL Query</Label>
+                                <Label className="text-xs text-muted-foreground">
+                                    Enter the GraphQL query or mutation. The tool Parameters (defined
+                                    in the Parameters tab) are sent as GraphQL variables — reference
+                                    them as $variableName with matching names.
+                                </Label>
+                                <Textarea
+                                    value={graphqlQuery}
+                                    onChange={(e) => onGraphqlQueryChange(e.target.value)}
+                                    placeholder={"mutation($id: ID!) {\n  book(id: $id) { ok }\n}"}
+                                    rows={8}
+                                    className="font-mono text-sm"
+                                />
+                            </div>
+                        )}
 
                         <div className="grid gap-2 pt-4 border-t">
                             <Label>Custom Message</Label>
@@ -187,6 +241,7 @@ export function HttpApiToolConfig({
                             <Label className="text-xs text-muted-foreground">
                                 Define the parameters that the LLM will provide when calling this tool.
                                 These will be sent as JSON body for POST/PUT/PATCH or as URL query params for GET/DELETE.
+                                When Body Type is GraphQL, these parameters are sent as the GraphQL <code>variables</code> object.
                             </Label>
                             <ParameterEditor
                                 parameters={parameters}

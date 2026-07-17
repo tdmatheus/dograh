@@ -3000,6 +3000,18 @@ export type HttpApiConfig = {
      * Recording ID for an audio custom message.
      */
     customMessageRecordingId?: string | null;
+    /**
+     * Body Type
+     *
+     * Shape of the request body: 'json' (default) or 'graphql'.
+     */
+    body_type?: 'json' | 'graphql';
+    /**
+     * Graphql Query
+     *
+     * GraphQL query or mutation string. Required when body_type is 'graphql'.
+     */
+    graphql_query?: string | null;
 };
 
 /**

@@ -99,6 +99,29 @@ class HttpApiConfig(BaseModel):
             "not embedded in the URL."
         ),
     )
+    body_type: Literal["json", "graphql"] = Field(
+        default="json",
+        description=(
+            "Shape of the request body. 'json' sends the resolved parameters as a "
+            "plain JSON object (existing behavior). 'graphql' sends "
+            "{'query': graphql_query, 'variables': <resolved parameters>} and forces POST."
+        ),
+        json_schema_extra=_llm_hint(
+            "Use 'graphql' only when the endpoint is a GraphQL API. Otherwise use 'json'."
+        ),
+    )
+    graphql_query: Optional[str] = Field(
+        default=None,
+        description=(
+            "GraphQL query or mutation string. Required when body_type is 'graphql'. "
+            "Parameter values become GraphQL 'variables'."
+        ),
+        json_schema_extra=_llm_hint(
+            "Provide the full GraphQL document, e.g. "
+            "'mutation($id: ID!) { book(id: $id) { ok } }'. Reference tool parameters "
+            "as GraphQL variables (e.g. $id) whose names match the tool parameter names."
+        ),
+    )
     headers: Optional[Dict[str, str]] = Field(
         default=None,
         description="Static headers to include with every request.",
@@ -150,6 +173,16 @@ class HttpApiConfig(BaseModel):
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
             raise ValueError("method must be one of GET, POST, PUT, PATCH, DELETE")
         return method
+
+    @model_validator(mode="after")
+    def validate_graphql_query(self) -> "HttpApiConfig":
+        if self.body_type == "graphql" and not (
+            self.graphql_query and self.graphql_query.strip()
+        ):
+            raise ValueError(
+                "config.graphql_query is required and must be non-empty when body_type is 'graphql'"
+            )
+        return self
 
 
 class EndCallConfig(BaseModel):

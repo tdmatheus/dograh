@@ -94,6 +94,8 @@ export default function ToolDetailPage() {
 
     // HTTP API form state
     const [httpMethod, setHttpMethod] = useState<HttpMethod>("POST");
+    const [bodyType, setBodyType] = useState<'json' | 'graphql'>('json');
+    const [graphqlQuery, setGraphqlQuery] = useState("");
     const [url, setUrl] = useState("");
     const [credentialUuid, setCredentialUuid] = useState("");
     const [headers, setHeaders] = useState<KeyValueItem[]>([]);
@@ -271,6 +273,8 @@ export default function ToolDetailPage() {
                 setCustomMessage(config.customMessage || "");
                 setCustomMessageType(config.customMessageType || "text");
                 setCustomMessageRecordingId(config.customMessageRecordingId || "");
+                setBodyType(config.body_type === "graphql" ? "graphql" : "json");
+                setGraphqlQuery(config.graphql_query || "");
 
                 // Convert headers object to array
                 if (config.headers) {
@@ -397,6 +401,11 @@ export default function ToolDetailPage() {
             const urlValidation = validateUrl(url);
             if (!urlValidation.valid) {
                 setError(urlValidation.error || "Invalid URL");
+                return;
+            }
+
+            if (bodyType === "graphql" && !graphqlQuery.trim()) {
+                setError("GraphQL query is required when Body Type is GraphQL");
                 return;
             }
 
@@ -537,6 +546,8 @@ export default function ToolDetailPage() {
                         type: "http_api",
                         config: {
                             method: httpMethod,
+                            body_type: bodyType,
+                            graphql_query: bodyType === "graphql" ? (graphqlQuery.trim() || undefined) : undefined,
                             url,
                             credential_uuid: credentialUuid || undefined,
                             headers:
@@ -619,6 +630,22 @@ export default function ToolDetailPage() {
                 exampleBody[p.name] = p.valueTemplate || `<${p.name}>`;
             }
         });
+
+        if (bodyType === "graphql") {
+            return `// ${tool.name}
+// ${tool.description || "HTTP API Tool"}
+
+const response = await fetch("${url}", {
+    method: "POST",
+    headers: ${JSON.stringify(headersObj, null, 4)},
+    body: JSON.stringify({
+        query: ${JSON.stringify(graphqlQuery)},
+        variables: ${JSON.stringify(exampleBody, null, 8)},
+    }),
+});
+
+const data = await response.json();`;
+        }
 
         const hasBody =
             httpMethod !== "GET" &&
@@ -881,6 +908,10 @@ const data = await response.json();`;
                             onDescriptionChange={setDescription}
                             httpMethod={httpMethod}
                             onHttpMethodChange={setHttpMethod}
+                            bodyType={bodyType}
+                            onBodyTypeChange={setBodyType}
+                            graphqlQuery={graphqlQuery}
+                            onGraphqlQueryChange={setGraphqlQuery}
                             url={url}
                             onUrlChange={setUrl}
                             credentialUuid={credentialUuid}

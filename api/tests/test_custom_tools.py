@@ -857,6 +857,172 @@ class TestExecuteHttpTool:
                 # Verify credential lookup was NOT called
                 mock_db.get_credential_by_uuid.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_graphql_tool_builds_query_variables_post_body(self):
+        """GraphQL tools send a {'query', 'variables'} POST body."""
+        graphql_query = "mutation($id: ID!){ book(id:$id){ ok } }"
+        tool = MockToolModel(
+            tool_uuid="test-uuid-graphql",
+            name="Book Item",
+            description="Book an item via GraphQL",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/graphql",
+                    "timeout_ms": 5000,
+                    "body_type": "graphql",
+                    "graphql_query": graphql_query,
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "type": "string",
+                            "description": "Item id to book",
+                            "required": True,
+                        }
+                    ],
+                },
+            },
+        )
+
+        arguments = {"id": "abc"}
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"data": {"book": {"ok": True}}}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, arguments)
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["method"] == "POST"
+            assert call_kwargs["json"] == {
+                "query": graphql_query,
+                "variables": {"id": "abc"},
+            }
+            assert call_kwargs["params"] is None
+            assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_graphql_forces_post_when_method_is_get(self):
+        """GraphQL forces POST even when the configured method is GET."""
+        graphql_query = "query($id: ID!){ book(id:$id){ ok } }"
+        tool = MockToolModel(
+            tool_uuid="test-uuid-graphql-get",
+            name="Fetch Item",
+            description="Fetch an item via GraphQL",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.example.com/graphql",
+                    "timeout_ms": 5000,
+                    "body_type": "graphql",
+                    "graphql_query": graphql_query,
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "type": "string",
+                            "description": "Item id to fetch",
+                            "required": True,
+                        }
+                    ],
+                },
+            },
+        )
+
+        arguments = {"id": "abc"}
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"data": {"book": {"ok": True}}}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, arguments)
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["method"] == "POST"
+            assert call_kwargs["params"] is None
+            assert call_kwargs["json"] == {
+                "query": graphql_query,
+                "variables": {"id": "abc"},
+            }
+            assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_graphql_variables_include_preset_parameters(self):
+        """GraphQL variables merge LLM arguments and resolved preset parameters."""
+        graphql_query = (
+            "mutation($id: ID!, $phone_number: String){ "
+            "lead(id:$id, phone:$phone_number){ ok } }"
+        )
+        tool = MockToolModel(
+            tool_uuid="test-uuid-graphql-preset",
+            name="Create Lead",
+            description="Create a lead via GraphQL with caller context",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/graphql",
+                    "timeout_ms": 5000,
+                    "body_type": "graphql",
+                    "graphql_query": graphql_query,
+                    "preset_parameters": [
+                        {
+                            "name": "phone_number",
+                            "type": "string",
+                            "value_template": "{{initial_context.phone_number}}",
+                            "required": True,
+                        }
+                    ],
+                },
+            },
+        )
+
+        arguments = {"id": "abc"}
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"data": {"lead": {"ok": True}}}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(
+                tool,
+                arguments,
+                call_context_vars={"phone_number": "+14155550123"},
+            )
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["method"] == "POST"
+            assert call_kwargs["json"]["query"] == graphql_query
+            assert call_kwargs["json"]["variables"] == {
+                "id": "abc",
+                "phone_number": "+14155550123",
+            }
+            assert result["status"] == "success"
+
 
 class TestCoerceParameterValue:
     """Tests for _coerce_parameter_value function."""

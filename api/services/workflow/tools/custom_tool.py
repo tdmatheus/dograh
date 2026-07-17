@@ -280,10 +280,20 @@ async def execute_http_tool(
 
     resolved_arguments = {**(arguments or {}), **preset_arguments}
 
-    # Build request: JSON body for POST/PUT/PATCH, query params for GET/DELETE
+    # Build request body.
+    # - body_type == "graphql": send {"query", "variables"} and force POST (GraphQL is POST).
+    #   Configured method is ignored in this mode.
+    # - body_type == "json" (default): JSON body for POST/PUT/PATCH, query params for GET/DELETE.
     body = None
     params = None
-    if method in ("POST", "PUT", "PATCH"):
+    body_type = config.get("body_type", "json")
+    if body_type == "graphql":
+        method = "POST"  # GraphQL over HTTP is always POST; override configured method
+        body = {
+            "query": config.get("graphql_query") or "",
+            "variables": resolved_arguments,
+        }
+    elif method in ("POST", "PUT", "PATCH"):
         body = resolved_arguments
     elif method in ("GET", "DELETE") and resolved_arguments:
         params = resolved_arguments

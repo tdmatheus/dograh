@@ -15,7 +15,6 @@ import "prismjs/components/prism-graphql";
 import "prismjs/components/prism-json";
 import "prismjs/themes/prism.css";
 
-import { useMemo } from "react";
 import Editor from "react-simple-code-editor";
 
 import { Label } from "@/components/ui/label";
@@ -84,55 +83,91 @@ function placeholderForType(type: ToolParameter["type"]): unknown {
     }
 }
 
-interface GraphqlVariablesPreviewProps {
+/** Build a JSON string of the variables shape derived from the parameters. */
+export function variablesShapeFromParameters(
+    parameters: ToolParameter[],
+): string {
+    const named = parameters.filter((p) => p.name.trim().length > 0);
+    const shape: Record<string, unknown> = {};
+    for (const param of named) {
+        shape[param.name] = placeholderForType(param.type);
+    }
+    return JSON.stringify(shape, null, 2);
+}
+
+interface GraphqlVariablesEditorProps {
+    value: string;
+    onValueChange: (value: string) => void;
+    /** Parameters used to seed the editor when the value is empty. */
     parameters: ToolParameter[];
+    rows?: number;
 }
 
 /**
- * Read-only, syntax-highlighted JSON preview of the GraphQL `variables`
- * shape derived from the current tool Parameters. Purely visual — nothing
- * is persisted from here.
+ * Editable, syntax-highlighted JSON editor for the GraphQL `variables` object.
+ * Seeded from the tool Parameters shape (e.g. {"identifier": "<string>"}) but
+ * fully editable — whatever is entered is sent as the variables, with the
+ * model-resolved parameter values merged in on top at call time.
  */
-export function GraphqlVariablesPreview({
+export function GraphqlVariablesEditor({
+    value,
+    onValueChange,
     parameters,
-}: GraphqlVariablesPreviewProps) {
-    const { json, hasParameters } = useMemo(() => {
-        const named = parameters.filter((p) => p.name.trim().length > 0);
-        const shape: Record<string, unknown> = {};
-        for (const param of named) {
-            shape[param.name] = placeholderForType(param.type);
-        }
-        return {
-            json: JSON.stringify(shape, null, 2),
-            hasParameters: named.length > 0,
-        };
-    }, [parameters]);
+    rows = 4,
+}: GraphqlVariablesEditorProps) {
+    // Seed once from the parameter shape when the field is still empty, so the
+    // user starts from a sensible default instead of a blank box.
+    const seeded = value && value.trim().length > 0
+        ? value
+        : variablesShapeFromParameters(parameters);
 
-    const highlighted = useMemo(
-        () => Prism.highlight(json, Prism.languages.json, "json"),
-        [json],
-    );
+    let isValidJson = true;
+    if (seeded.trim().length > 0) {
+        try {
+            const parsed = JSON.parse(seeded);
+            isValidJson =
+                typeof parsed === "object" &&
+                parsed !== null &&
+                !Array.isArray(parsed);
+        } catch {
+            isValidJson = false;
+        }
+    }
 
     return (
         <div className="grid gap-2">
             <Label>Variables</Label>
-            <div className="rounded-md border border-input bg-muted/40 overflow-x-auto">
-                <pre className="p-3 m-0 text-sm">
-                    <code
-                        className="font-mono language-json"
-                        // Prism-highlighted, read-only, derived content only.
-                        dangerouslySetInnerHTML={{ __html: highlighted }}
-                    />
-                </pre>
-            </div>
             <Label className="text-xs text-muted-foreground">
-                These variables are filled from the tool Parameters at call
-                time.
+                Editable JSON sent as the GraphQL <code>variables</code>.
+                Pre-filled from the tool Parameters — edit to hardcode or shape
+                values. Parameter values the model provides at call time are
+                merged in on top for matching keys.
             </Label>
-            {!hasParameters && (
-                <Label className="text-xs text-muted-foreground">
-                    No parameters defined yet. Add them in the Parameters tab to
-                    see them here.
+            <div
+                className={`rounded-md border bg-background text-sm focus-within:ring-1 focus-within:ring-ring ${
+                    isValidJson ? "border-input" : "border-destructive"
+                }`}
+                style={{ minHeight: `${rows * 1.5}rem` }}
+            >
+                <Editor
+                    value={seeded}
+                    onValueChange={onValueChange}
+                    highlight={(code) =>
+                        Prism.highlight(code, Prism.languages.json, "json")
+                    }
+                    padding={12}
+                    textareaClassName="focus:outline-none"
+                    className="font-mono text-sm"
+                    style={{
+                        fontFamily:
+                            "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
+                        minHeight: `${rows * 1.5}rem`,
+                    }}
+                />
+            </div>
+            {!isValidJson && (
+                <Label className="text-xs text-destructive">
+                    Variables must be a valid JSON object.
                 </Label>
             )}
         </div>

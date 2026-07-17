@@ -8,6 +8,7 @@ when the same schema is surfaced through MCP or SDK authoring flows.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
@@ -122,6 +123,21 @@ class HttpApiConfig(BaseModel):
             "as GraphQL variables (e.g. $id) whose names match the tool parameter names."
         ),
     )
+    graphql_variables: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional editable JSON template for the GraphQL 'variables' object "
+            "(body_type == 'graphql' only). When provided, this JSON is parsed and "
+            "used as the variables, with the model-resolved parameter values merged "
+            "in on top for any matching keys. When omitted, variables are built "
+            "directly from the resolved parameters (default behavior)."
+        ),
+        json_schema_extra=_llm_hint(
+            "Leave unset to send the resolved parameters as variables. Set a JSON "
+            "object string to hardcode/shape variables, e.g. '{\"id\": \"\", "
+            "\"limit\": 10}'."
+        ),
+    )
     headers: Optional[Dict[str, str]] = Field(
         default=None,
         description="Static headers to include with every request.",
@@ -182,6 +198,17 @@ class HttpApiConfig(BaseModel):
             raise ValueError(
                 "config.graphql_query is required and must be non-empty when body_type is 'graphql'"
             )
+        if self.graphql_variables and self.graphql_variables.strip():
+            try:
+                parsed = json.loads(self.graphql_variables)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    "config.graphql_variables must be valid JSON"
+                ) from exc
+            if not isinstance(parsed, dict):
+                raise ValueError(
+                    "config.graphql_variables must be a JSON object"
+                )
         return self
 
 

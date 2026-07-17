@@ -96,6 +96,7 @@ export default function ToolDetailPage() {
     const [httpMethod, setHttpMethod] = useState<HttpMethod>("POST");
     const [bodyType, setBodyType] = useState<'json' | 'graphql'>('json');
     const [graphqlQuery, setGraphqlQuery] = useState("");
+    const [graphqlVariables, setGraphqlVariables] = useState("");
     const [url, setUrl] = useState("");
     const [credentialUuid, setCredentialUuid] = useState("");
     const [headers, setHeaders] = useState<KeyValueItem[]>([]);
@@ -275,6 +276,7 @@ export default function ToolDetailPage() {
                 setCustomMessageRecordingId(config.customMessageRecordingId || "");
                 setBodyType(config.body_type === "graphql" ? "graphql" : "json");
                 setGraphqlQuery(config.graphql_query || "");
+                setGraphqlVariables(config.graphql_variables || "");
 
                 // Convert headers object to array
                 if (config.headers) {
@@ -548,6 +550,7 @@ export default function ToolDetailPage() {
                             method: httpMethod,
                             body_type: bodyType,
                             graphql_query: bodyType === "graphql" ? (graphqlQuery.trim() || undefined) : undefined,
+                            graphql_variables: bodyType === "graphql" ? (graphqlVariables.trim() || undefined) : undefined,
                             url,
                             credential_uuid: credentialUuid || undefined,
                             headers:
@@ -912,6 +915,8 @@ const data = await response.json();`;
                             onBodyTypeChange={setBodyType}
                             graphqlQuery={graphqlQuery}
                             onGraphqlQueryChange={setGraphqlQuery}
+                            graphqlVariables={graphqlVariables}
+                            onGraphqlVariablesChange={setGraphqlVariables}
                             url={url}
                             onUrlChange={setUrl}
                             credentialUuid={credentialUuid}

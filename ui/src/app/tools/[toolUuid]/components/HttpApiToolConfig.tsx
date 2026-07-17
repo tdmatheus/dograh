@@ -5,7 +5,7 @@ import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAud
 import {
     CredentialSelector,
     GraphqlQueryEditor,
-    GraphqlVariablesPreview,
+    GraphqlVariablesEditor,
     type HttpMethod,
     HttpMethodSelector,
     KeyValueEditor,
@@ -34,6 +34,8 @@ export interface HttpApiToolConfigProps {
     onBodyTypeChange: (bodyType: 'json' | 'graphql') => void;
     graphqlQuery: string;
     onGraphqlQueryChange: (query: string) => void;
+    graphqlVariables: string;
+    onGraphqlVariablesChange: (variables: string) => void;
     url: string;
     onUrlChange: (url: string) => void;
     credentialUuid: string;
@@ -66,6 +68,8 @@ export function HttpApiToolConfig({
     onBodyTypeChange,
     graphqlQuery,
     onGraphqlQueryChange,
+    graphqlVariables,
+    onGraphqlVariablesChange,
     url,
     onUrlChange,
     credentialUuid,
@@ -201,7 +205,11 @@ export function HttpApiToolConfig({
                                     placeholder={"mutation($id: ID!) {\n  book(id: $id) { ok }\n}"}
                                     rows={8}
                                 />
-                                <GraphqlVariablesPreview parameters={parameters} />
+                                <GraphqlVariablesEditor
+                                    value={graphqlVariables}
+                                    onValueChange={onGraphqlVariablesChange}
+                                    parameters={parameters}
+                                />
                             </div>
                         )}
 

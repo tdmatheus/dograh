@@ -289,9 +289,31 @@ async def execute_http_tool(
     body_type = config.get("body_type", "json")
     if body_type == "graphql":
         method = "POST"  # GraphQL over HTTP is always POST; override configured method
+        # Variables: start from the editable JSON template if the tool defines
+        # one, then merge the model-resolved argument values on top so matching
+        # keys get their real runtime values. Falls back to the resolved
+        # arguments directly when no template is set.
+        variables: dict = {}
+        variables_template = config.get("graphql_variables")
+        if variables_template and variables_template.strip():
+            try:
+                parsed = json.loads(variables_template)
+                if isinstance(parsed, dict):
+                    variables.update(parsed)
+                else:
+                    logger.warning(
+                        f"Tool '{tool.name}' graphql_variables is not a JSON "
+                        "object; ignoring template"
+                    )
+            except json.JSONDecodeError:
+                logger.warning(
+                    f"Tool '{tool.name}' graphql_variables is not valid JSON; "
+                    "ignoring template"
+                )
+        variables.update(resolved_arguments)
         body = {
             "query": config.get("graphql_query") or "",
-            "variables": resolved_arguments,
+            "variables": variables,
         }
     elif method in ("POST", "PUT", "PATCH"):
         body = resolved_arguments

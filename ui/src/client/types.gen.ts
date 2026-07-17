@@ -3012,6 +3012,7 @@ export type HttpApiConfig = {
      * GraphQL query or mutation string. Required when body_type is 'graphql'.
      */
     graphql_query?: string | null;
+    graphql_variables?: string | null;
 };
 
 /**

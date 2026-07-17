@@ -20,6 +20,20 @@ TYPE_MAP = {
     "array": "array",
 }
 
+# A GraphQL variables template value of the form "<name>" is a placeholder that
+# means "fill this from the resolved parameter `name`". This matches the markers
+# the tool config UI seeds from the tool Parameters.
+_PLACEHOLDER_RE = re.compile(r"^<([A-Za-z_][A-Za-z0-9_]*)>$")
+
+
+def _placeholder_param_name(value: Any) -> Optional[str]:
+    """Return the parameter name if `value` is a "<name>" placeholder, else None."""
+    if isinstance(value, str):
+        match = _PLACEHOLDER_RE.match(value.strip())
+        if match:
+            return match.group(1)
+    return None
+
 
 def tool_to_function_schema(tool: Any) -> Dict[str, Any]:
     """Convert a ToolModel to an LLM function schema.
@@ -290,16 +304,28 @@ async def execute_http_tool(
     if body_type == "graphql":
         method = "POST"  # GraphQL over HTTP is always POST; override configured method
         # Variables: start from the editable JSON template if the tool defines
-        # one, then merge the model-resolved argument values on top so matching
-        # keys get their real runtime values. Falls back to the resolved
-        # arguments directly when no template is set.
+        # one. A value written as "<name>" is a placeholder meaning "fill this
+        # from the resolved parameter `name`" — replace it with that value, and
+        # DROP the key entirely if the parameter has no value (so the literal
+        # "<name>" never reaches the API). Then merge any remaining resolved
+        # arguments on top. Falls back to the resolved arguments directly when
+        # no template is set.
         variables: dict = {}
         variables_template = config.get("graphql_variables")
         if variables_template and variables_template.strip():
             try:
                 parsed = json.loads(variables_template)
                 if isinstance(parsed, dict):
-                    variables.update(parsed)
+                    for key, value in parsed.items():
+                        placeholder = _placeholder_param_name(value)
+                        if placeholder is not None:
+                            # "<name>" placeholder: resolve from arguments, or
+                            # drop the key if that argument wasn't provided.
+                            if placeholder in resolved_arguments:
+                                variables[key] = resolved_arguments[placeholder]
+                            # else: leave it out — never send the raw marker.
+                        else:
+                            variables[key] = value
                 else:
                     logger.warning(
                         f"Tool '{tool.name}' graphql_variables is not a JSON "
@@ -310,6 +336,9 @@ async def execute_http_tool(
                     f"Tool '{tool.name}' graphql_variables is not valid JSON; "
                     "ignoring template"
                 )
+        # Merge remaining resolved arguments (adds any not already mapped by the
+        # template, and lets real runtime values win over static template ones
+        # for matching keys).
         variables.update(resolved_arguments)
         body = {
             "query": config.get("graphql_query") or "",

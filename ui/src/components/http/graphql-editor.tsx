@@ -65,22 +65,15 @@ export function GraphqlQueryEditor({
     );
 }
 
-/** Placeholder value for each ToolParameter type, used to render the shape. */
-function placeholderForType(type: ToolParameter["type"]): unknown {
-    switch (type) {
-        case "string":
-            return "<string>";
-        case "number":
-            return 0;
-        case "boolean":
-            return false;
-        case "object":
-            return {};
-        case "array":
-            return [];
-        default:
-            return "<string>";
-    }
+/**
+ * Placeholder value for a parameter: an unambiguous `<name>` marker. At call
+ * time the backend replaces `<name>` with that parameter's resolved value (and
+ * drops the key if the parameter has no value), so the literal marker never
+ * reaches the API. Using the param name (not a type token like "<string>")
+ * keeps the mapping explicit and works for every type.
+ */
+function placeholderForParam(name: string): string {
+    return `<${name}>`;
 }
 
 /** Build a JSON string of the variables shape derived from the parameters. */
@@ -90,7 +83,7 @@ export function variablesShapeFromParameters(
     const named = parameters.filter((p) => p.name.trim().length > 0);
     const shape: Record<string, unknown> = {};
     for (const param of named) {
-        shape[param.name] = placeholderForType(param.type);
+        shape[param.name] = placeholderForParam(param.name);
     }
     return JSON.stringify(shape, null, 2);
 }

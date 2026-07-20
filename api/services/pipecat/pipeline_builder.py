@@ -5,9 +5,17 @@ from loguru import logger
 from api.services.pipecat.audio_config import AudioConfig
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.processors.aggregators.dtmf_aggregator import DTMFAggregator
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.run_context import turn_var
+
+# Enable keypad (DTMF) capture. When true, build_pipeline inserts a
+# DTMFAggregator after transport input so a caller keying digits (e.g. an
+# account number or a one-time passcode) reaches the LLM context as a
+# "DTMF: <digits>" transcription. Off by default so existing calls are
+# unchanged; opt in per deployment.
+ENABLE_DTMF_INPUT = os.getenv("ENABLE_DTMF_INPUT", "false").lower() == "true"
 
 
 def create_pipeline_components(audio_config: AudioConfig):
@@ -54,6 +62,14 @@ def build_pipeline(
         transport.input(),  # Transport user input
         stt,
     ]
+
+    # DTMF keypad capture. Sits after transport input (the source of
+    # InputDTMFFrame) and before user_context_aggregator, which the
+    # aggregator's emitted "DTMF: <digits>" TranscriptionFrame feeds into so
+    # keyed digits enter the LLM context like spoken input.
+    if ENABLE_DTMF_INPUT:
+        logger.info("Adding DTMF aggregator to pipeline")
+        processors.append(DTMFAggregator())
 
     # Insert voicemail detector after STT if enabled
     # Note: We intentionally do NOT use voicemail_detector.gate() to allow TTS
@@ -131,9 +147,19 @@ def build_realtime_pipeline(
     """
     processors = [
         transport.input(),
-        user_context_aggregator,
-        realtime_llm,
     ]
+
+    # DTMF keypad capture, before the user aggregator (see build_pipeline).
+    if ENABLE_DTMF_INPUT:
+        logger.info("Adding DTMF aggregator to realtime pipeline")
+        processors.append(DTMFAggregator())
+
+    processors.extend(
+        [
+            user_context_aggregator,
+            realtime_llm,
+        ]
+    )
 
     if voicemail_detector:
         logger.info("Adding native voicemail detector to realtime pipeline")

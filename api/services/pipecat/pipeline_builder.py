@@ -3,6 +3,7 @@ import os
 from loguru import logger
 
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.dtmf_input_processor import DTMFInputProcessor
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.dtmf_aggregator import DTMFAggregator
@@ -45,6 +46,7 @@ def build_pipeline(
     pipeline_metrics_aggregator,
     voicemail_detector=None,
     recording_router=None,
+    dtmf_callback=None,
 ):
     """Build the main pipeline with all components.
 
@@ -60,13 +62,22 @@ def build_pipeline(
     # Build processors list with optional voicemail detection
     processors = [
         transport.input(),  # Transport user input
-        stt,
     ]
 
-    # DTMF keypad capture. Sits after transport input (the source of
-    # InputDTMFFrame) and before user_context_aggregator, which the
-    # aggregator's emitted "DTMF: <digits>" TranscriptionFrame feeds into so
-    # keyed digits enter the LLM context like spoken input.
+    # Deterministic keypad routing. This must sit at the head of the pipeline,
+    # right after transport input (the source of InputDTMFFrame), so a keyed
+    # digit reaches the engine before the LLM or context aggregator can consume
+    # the raw frame. A post-LLM placement is unreliable — the frame may not
+    # survive traversal through those services.
+    if ENABLE_DTMF_INPUT and dtmf_callback is not None:
+        logger.info("Adding DTMF input processor to pipeline")
+        processors.append(DTMFInputProcessor(dtmf_callback))
+
+    processors.append(stt)
+
+    # DTMF transcription. The aggregator emits a "DTMF: <digits>"
+    # TranscriptionFrame into the LLM context so keyed digits also appear like
+    # spoken input (used by non-menu nodes and for observability).
     if ENABLE_DTMF_INPUT:
         logger.info("Adding DTMF aggregator to pipeline")
         processors.append(DTMFAggregator())
@@ -119,6 +130,7 @@ def build_realtime_pipeline(
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
     voicemail_detector=None,
+    dtmf_callback=None,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
 
@@ -149,7 +161,12 @@ def build_realtime_pipeline(
         transport.input(),
     ]
 
-    # DTMF keypad capture, before the user aggregator (see build_pipeline).
+    # Deterministic keypad routing at the head of the pipeline (see build_pipeline).
+    if ENABLE_DTMF_INPUT and dtmf_callback is not None:
+        logger.info("Adding DTMF input processor to realtime pipeline")
+        processors.append(DTMFInputProcessor(dtmf_callback))
+
+    # DTMF transcription into the LLM context, before the user aggregator.
     if ENABLE_DTMF_INPUT:
         logger.info("Adding DTMF aggregator to realtime pipeline")
         processors.append(DTMFAggregator())

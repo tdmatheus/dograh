@@ -918,7 +918,6 @@ async def _run_pipeline_impl(
         max_duration_end_task_callback=engine.create_max_duration_callback(),
         generation_started_callback=engine.create_generation_started_callback(),
         llm_text_frame_callback=engine.handle_llm_text_frame,
-        dtmf_callback=engine.handle_dtmf_input,
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
@@ -1017,6 +1016,7 @@ async def _run_pipeline_impl(
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
             voicemail_detector=voicemail_detector,
+            dtmf_callback=engine.handle_dtmf_input,
         )
     else:
         pipeline = build_pipeline(
@@ -1031,6 +1031,7 @@ async def _run_pipeline_impl(
             pipeline_metrics_aggregator,
             voicemail_detector=voicemail_detector,
             recording_router=recording_router,
+            dtmf_callback=engine.handle_dtmf_input,
         )
 
     # Create pipeline task with audio configuration

@@ -991,6 +991,7 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     model = realtime_config.model
     api_key = realtime_config.api_key
     voice = getattr(realtime_config, "voice", None)
+    speed = getattr(realtime_config, "speed", None)
     language = getattr(realtime_config, "language", None)
 
     logger.info(
@@ -1020,6 +1021,7 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                         ),
                         output=AudioOutput(
                             voice=voice or "alloy",
+                            speed=speed,
                         ),
                     ),
                 ),

@@ -618,6 +618,12 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": True,
         },
     )
+    speed: float = Field(
+        default=1.0,
+        ge=0.25,
+        le=1.5,
+        description="Speaking speed multiplier. 1.0 is normal; higher is faster (max 1.5).",
+    )
 
 
 GROK_REALTIME_MODELS = ["grok-voice-think-fast-1.0"]

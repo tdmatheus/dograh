@@ -294,6 +294,28 @@ async def execute_http_tool(
 
     resolved_arguments = {**(arguments or {}), **preset_arguments}
 
+    # Template the URL against context + resolved arguments. This lets APIs that
+    # carry values in the PATH (e.g. Mapbox Directions
+    # /driving/{{from_lng}},{{from_lat}};{{to_lng}},{{to_lat}}) work at all —
+    # httpx does not template the URL, and query params can't stand in for path
+    # segments. Any argument consumed by a "{{name}}" in the URL is dropped from
+    # resolved_arguments so it isn't ALSO appended as a query param / body field.
+    initial_context = dict(call_context_vars or {})
+    url_render_context = {
+        **initial_context,
+        **resolved_arguments,
+        "initial_context": initial_context,
+        "gathered_context": dict(gathered_context_vars or {}),
+    }
+    consumed_by_url = {
+        name for name in resolved_arguments if f"{{{{{name}}}}}" in url
+    }
+    if consumed_by_url:
+        url = render_template(url, url_render_context)
+        resolved_arguments = {
+            k: v for k, v in resolved_arguments.items() if k not in consumed_by_url
+        }
+
     # Build request body.
     # - body_type == "graphql": send {"query", "variables"} and force POST (GraphQL is POST).
     #   Configured method is ignored in this mode.

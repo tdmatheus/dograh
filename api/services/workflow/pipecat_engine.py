@@ -19,6 +19,7 @@ from pipecat.utils.enums import EndTaskReason
 from api.db import db_client
 from api.enums import ToolCategory
 from api.services.pipecat.audio_playback import play_audio
+from api.services.workflow.dto import NodeType
 from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
 if TYPE_CHECKING:
@@ -96,6 +97,9 @@ class PipecatEngine:
         self._call_disposed = False
         self._current_node: Optional[Node] = None
         self._gathered_context: dict = {}
+        # Accumulation buffer for the collect_digits DTMF mode. Reset every
+        # time set_node enters a dtmfMenu node.
+        self._dtmf_buffer: str = ""
         self._user_response_timeout_task: Optional[asyncio.Task] = None
         self._pending_extraction_tasks: set[asyncio.Task] = set()
 
@@ -220,6 +224,126 @@ class PipecatEngine:
         """Delegate prompt formatting to the shared workflow.utils implementation."""
 
         return render_template(prompt, self._call_context_vars)
+
+    async def _fire_dtmf_edge(self, target_node_id: str) -> None:
+        """Deterministically transition to `target_node_id` from a DTMF node.
+
+        Mirrors what an LLM transition function does on set_node, but without
+        any model involvement: perform pending extraction, set the new node on
+        the context, then queue that node's opening so it speaks/generates.
+        """
+        previous_node_id = self._current_node.id if self._current_node else None
+
+        # Perform variable extraction for the DTMF node before leaving it.
+        await self._perform_variable_extraction_if_needed(self._current_node)
+
+        await self.set_node(target_node_id)
+        await self.queue_node_opening(
+            node_id=target_node_id,
+            previous_node_id=previous_node_id,
+            generate_if_no_greeting=True,
+        )
+
+        # If the target is an end node, close the call out.
+        if self._current_node is not None and self._current_node.is_end:
+            await self.end_call_with_reason(EndTaskReason.USER_QUALIFIED.value)
+
+    async def handle_dtmf_input(self, button_value: str) -> None:
+        """Deterministic keypad handler for DTMF menu nodes.
+
+        Invoked with the raw digit character (0-9, '*', '#') for every
+        InputDTMFFrame. When the current node is not a dtmfMenu node this is a
+        no-op — normal STT/LLM flow handles the input. For dtmfMenu nodes it
+        fires an outgoing edge with NO LLM decision involved.
+        """
+        node = self._current_node
+        if node is None or node.node_type != NodeType.dtmfMenu.value:
+            return
+
+        data = node.data
+        mode = getattr(data, "mode", "single_key") or "single_key"
+
+        if mode == "single_key":
+            mappings = getattr(data, "digit_mappings", None) or []
+            edge_label = None
+            for mapping in mappings:
+                # mapping is a DTMFDigitMappingDTO (or dict for safety).
+                m_digit = getattr(mapping, "digit", None)
+                if m_digit is None and isinstance(mapping, dict):
+                    m_digit = mapping.get("digit")
+                if m_digit == button_value:
+                    edge_label = getattr(mapping, "edge_label", None)
+                    if edge_label is None and isinstance(mapping, dict):
+                        edge_label = mapping.get("edge_label")
+                    break
+
+            if edge_label is None:
+                logger.debug(
+                    f"DTMF single_key: digit {button_value!r} is unmapped on node "
+                    f"{node.name}; ignoring."
+                )
+                return
+
+            target_id = self._find_dtmf_edge_target(node, edge_label)
+            if target_id is None:
+                logger.warning(
+                    f"DTMF single_key: no outgoing edge labeled {edge_label!r} on "
+                    f"node {node.name}; ignoring digit {button_value!r}."
+                )
+                return
+
+            logger.info(
+                f"DTMF single_key: digit {button_value!r} → edge {edge_label!r} "
+                f"→ node {target_id}"
+            )
+            await self._fire_dtmf_edge(target_id)
+            return
+
+        if mode == "collect_digits":
+            terminator = getattr(data, "terminator", None) or "#"
+            num_digits = getattr(data, "num_digits", None)
+
+            submit = False
+            if button_value == terminator:
+                submit = True
+            else:
+                self._dtmf_buffer += button_value
+                if num_digits and len(self._dtmf_buffer) >= int(num_digits):
+                    submit = True
+
+            if not submit:
+                return
+
+            collected = self._dtmf_buffer
+            store_variable = getattr(data, "store_variable", None)
+            if store_variable:
+                self._gathered_context[store_variable] = collected
+            self._dtmf_buffer = ""
+
+            # Fire the single outgoing edge (first one). collect_digits nodes
+            # are expected to have exactly one outgoing edge.
+            if not node.out_edges:
+                logger.warning(
+                    f"DTMF collect_digits: node {node.name} has no outgoing edge; "
+                    f"collected {collected!r} but cannot transition."
+                )
+                return
+
+            target_id = node.out_edges[0].target
+            logger.info(
+                f"DTMF collect_digits: collected {collected!r} into "
+                f"{store_variable!r} → node {target_id}"
+            )
+            await self._fire_dtmf_edge(target_id)
+            return
+
+    @staticmethod
+    def _find_dtmf_edge_target(node: Node, edge_label: str) -> Optional[str]:
+        """Return the target node id of the outgoing edge whose label matches."""
+        for edge in node.out_edges:
+            if edge.label == edge_label:
+                return edge.target
+        return None
 
     async def _create_transition_func(
         self,
@@ -515,8 +639,11 @@ class PipecatEngine:
         except AttributeError:
             logger.warning(f"context has no set_otel_span_name method")
 
-        # Register transition functions if not an end node
-        if not node.is_end:
+        # Register transition functions if not an end node. DTMF menu nodes
+        # route deterministically on a pressed keypad digit (see
+        # handle_dtmf_input), so the LLM must NOT be given transition functions
+        # for them — otherwise the model could choose an edge on its own.
+        if not node.is_end and node.node_type != NodeType.dtmfMenu.value:
             for outgoing_edge in node.out_edges:
                 await self._register_transition_function_with_llm(
                     outgoing_edge.get_function_name(),
@@ -566,6 +693,11 @@ class PipecatEngine:
 
         # Set current node for all nodes (including static ones) so STT mute filter works
         self._current_node = node
+
+        # Reset any stale collect_digits buffer whenever we enter a DTMF menu
+        # node, so digits from a previous DTMF step never leak in.
+        if node.node_type == NodeType.dtmfMenu.value:
+            self._dtmf_buffer = ""
 
         # Track visited nodes in gathered context for call tags
         nodes_visited = self._gathered_context.setdefault("nodes_visited", [])

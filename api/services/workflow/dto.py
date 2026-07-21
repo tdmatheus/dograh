@@ -30,6 +30,7 @@ class NodeType(str, Enum):
     trigger = "trigger"
     webhook = "webhook"
     qa = "qa"
+    dtmfMenu = "dtmfMenu"
 
 
 class Position(BaseModel):
@@ -87,6 +88,31 @@ class CustomHeaderDTO(BaseModel):
         display_name="Header Value",
         description="Header value (supports {{template_variables}}).",
         required=True,
+    )
+
+
+class DTMFDigitMappingDTO(BaseModel):
+    """One keypad-digit → outgoing-edge mapping for a single_key DTMF menu."""
+
+    digit: str = spec_field(
+        ...,
+        ui_type=PropertyType.string,
+        display_name="Digit",
+        description="Single keypad character that triggers this edge (0-9, * or #).",
+        required=True,
+        min_length=1,
+        max_length=1,
+    )
+    edge_label: str = spec_field(
+        ...,
+        ui_type=PropertyType.string,
+        display_name="Edge Label",
+        description=(
+            "Label of the outgoing edge to fire when this digit is pressed. Must "
+            "match one of this node's outgoing edge labels exactly."
+        ),
+        required=True,
+        min_length=1,
     )
 
 
@@ -429,6 +455,142 @@ class AgentNodeData(
     _ToolDocumentRefsMixin,
 ):
     pass
+
+
+@node_spec(
+    name="dtmfMenu",
+    display_name="DTMF Menu",
+    description="Keypad (DTMF) step — routes on a pressed digit, no LLM decision.",
+    llm_hint=(
+        "Deterministic keypad node. In `single_key` mode it plays a menu prompt "
+        "and maps each digit to an outgoing edge, firing that edge with no LLM "
+        "involvement. In `collect_digits` mode it plays a prompt, accumulates "
+        "digits until `num_digits` is reached or the terminator ('#') is pressed, "
+        "stores the collected string into a gathered_context variable, then fires "
+        "its single outgoing edge. Requires ENABLE_DTMF_INPUT on the pipeline."
+    ),
+    category=NodeCategory.call_node,
+    icon="Hash",
+    examples=[
+        NodeExample(
+            name="main_menu",
+            data={
+                "name": "Main Menu",
+                "prompt": "Press 1 for sales, 2 for support, 3 to leave a message.",
+                "mode": "single_key",
+                "digit_mappings": [
+                    {"digit": "1", "edge_label": "to_sales"},
+                    {"digit": "2", "edge_label": "to_support"},
+                    {"digit": "3", "edge_label": "to_voicemail"},
+                ],
+            },
+        ),
+        NodeExample(
+            name="collect_account_number",
+            data={
+                "name": "Account Number",
+                "prompt": "Please enter your 8 digit account number, then press pound.",
+                "mode": "collect_digits",
+                "store_variable": "account_number",
+                "num_digits": 8,
+                "terminator": "#",
+            },
+        ),
+    ],
+    graph_constraints=GraphConstraints(min_incoming=1),
+    property_order=(
+        "name",
+        "prompt",
+        "mode",
+        "digit_mappings",
+        "store_variable",
+        "num_digits",
+        "terminator",
+        "allow_interrupt",
+        "add_global_prompt",
+    ),
+    field_overrides={
+        "name": {
+            "spec_default": "DTMF Menu",
+            "description": "Short identifier shown in the canvas and call logs.",
+        },
+        "prompt": {
+            "display_name": "Menu Prompt",
+            "description": (
+                "Spoken prompt for this keypad step (the menu or the collection "
+                "request). Supports {{template_variables}}."
+            ),
+            "placeholder": "Press 1 for sales, 2 for support.",
+        },
+        "mode": {
+            "display_name": "Mode",
+            "description": (
+                "single_key routes on one pressed digit; collect_digits gathers a "
+                "sequence into a variable."
+            ),
+            "options": [
+                PropertyOption(
+                    value="single_key",
+                    label="Single Key (route on digit)",
+                    description="Each digit maps to an outgoing edge.",
+                ),
+                PropertyOption(
+                    value="collect_digits",
+                    label="Collect Digits (into a variable)",
+                    description="Accumulate digits, store, then fire the single edge.",
+                ),
+            ],
+            "spec_default": "single_key",
+        },
+        "digit_mappings": {
+            "display_name": "Digit → Edge Mappings",
+            "description": (
+                "For single_key mode: maps each keypad digit to the outgoing edge "
+                "fired when pressed. Unmapped digits are ignored."
+            ),
+            "display_options": DisplayOptions(show={"mode": ["single_key"]}),
+        },
+        "store_variable": {
+            "display_name": "Store Into Variable",
+            "description": (
+                "For collect_digits mode: gathered_context key the collected digit "
+                "string is stored under."
+            ),
+            "placeholder": "account_number",
+            "display_options": DisplayOptions(show={"mode": ["collect_digits"]}),
+        },
+        "num_digits": {
+            "display_name": "Number of Digits",
+            "description": (
+                "For collect_digits mode: fixed length that auto-submits once "
+                "reached. Leave empty (or 0) to collect until the terminator."
+            ),
+            "min_value": 0,
+            "display_options": DisplayOptions(show={"mode": ["collect_digits"]}),
+        },
+        "terminator": {
+            "display_name": "Terminator Key",
+            "description": (
+                "Key that submits the collected digits in collect_digits mode. "
+                "The terminator itself is not stored."
+            ),
+            "spec_default": "#",
+            "display_options": DisplayOptions(show={"mode": ["collect_digits"]}),
+        },
+    },
+)
+class DTMFMenuNodeData(
+    BaseNodeData,
+    _PromptedNodeDataMixin,
+    _ExtractionNodeDataMixin,
+):
+    mode: str = spec_field(default="single_key", ui_type=PropertyType.options)
+    digit_mappings: Optional[list[DTMFDigitMappingDTO]] = spec_field(default=None)
+    store_variable: Optional[str] = spec_field(
+        default=None, ui_type=PropertyType.string
+    )
+    num_digits: Optional[int] = spec_field(default=None, ui_type=PropertyType.number)
+    terminator: str = spec_field(default="#", ui_type=PropertyType.string)
 
 
 @node_spec(
@@ -896,6 +1058,7 @@ NodeDataDTO = Union[
     TriggerNodeData,
     WebhookNodeData,
     QANodeData,
+    DTMFMenuNodeData,
 ]
 
 
@@ -974,11 +1137,22 @@ class QARFNode(_RFNodeBase):
     data: QANodeData
 
 
+class DTMFMenuRFNode(_RFNodeBase):
+    type: Literal["dtmfMenu"] = "dtmfMenu"
+    data: DTMFMenuNodeData
+
+    @model_validator(mode="after")
+    def _validate(self):
+        _require_prompt(self.data, "DTMF menu")
+        return self
+
+
 _PROMPT_REQUIRED_NODE_TYPES: dict[str, str] = {
     NodeType.startNode.value: "start",
     NodeType.agentNode.value: "agent",
     NodeType.endNode.value: "end",
     NodeType.globalNode.value: "global",
+    NodeType.dtmfMenu.value: "DTMF menu",
 }
 
 
@@ -1067,6 +1241,7 @@ _CORE_NODE_DATA_CLASSES: dict[str, type[BaseNodeData]] = {
     NodeType.trigger.value: TriggerNodeData,
     NodeType.webhook.value: WebhookNodeData,
     NodeType.qa.value: QANodeData,
+    NodeType.dtmfMenu.value: DTMFMenuNodeData,
 }
 
 

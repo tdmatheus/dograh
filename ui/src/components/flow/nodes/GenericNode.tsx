@@ -34,6 +34,7 @@ type NodeStyleVariant =
     | "trigger"
     | "webhook"
     | "qa"
+    | "dtmf"
     | "integration";
 
 const STYLE_VARIANT_BY_SPEC: Record<string, NodeStyleVariant> = {
@@ -44,6 +45,7 @@ const STYLE_VARIANT_BY_SPEC: Record<string, NodeStyleVariant> = {
     trigger: "trigger",
     webhook: "webhook",
     qa: "qa",
+    dtmfMenu: "dtmf",
 };
 
 const HANDLES_BY_SPEC: Record<string, { source: boolean; target: boolean }> = {
@@ -54,6 +56,7 @@ const HANDLES_BY_SPEC: Record<string, { source: boolean; target: boolean }> = {
     trigger: { source: false, target: false },
     webhook: { source: false, target: false },
     qa: { source: false, target: false },
+    dtmfMenu: { source: true, target: true },
 };
 
 const DOC_URL_BY_SPEC: Record<string, string | undefined> = {
@@ -64,6 +67,7 @@ const DOC_URL_BY_SPEC: Record<string, string | undefined> = {
     trigger: NODE_DOCUMENTATION_URLS.apiTrigger,
     webhook: NODE_DOCUMENTATION_URLS.webhook,
     qa: NODE_DOCUMENTATION_URLS.qaAnalysis,
+    dtmfMenu: undefined,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -160,6 +164,8 @@ function getBadgeForSpec(
             return { label: "Webhook", className: "bg-indigo-500 text-white" };
         case "qa":
             return { label: "QA Analysis", className: "bg-teal-500 text-white" };
+        case "dtmf":
+            return { label: "DTMF Menu", className: "bg-slate-600 text-white" };
         case "integration":
             return { label: spec.display_name, className: "bg-cyan-600 text-white" };
     }

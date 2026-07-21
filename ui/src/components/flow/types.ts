@@ -6,6 +6,7 @@ export enum NodeType {
     TRIGGER = 'trigger',
     WEBHOOK = 'webhook',
     QA = 'qa',
+    DTMF_MENU = 'dtmfMenu',
 }
 
 export type FlowNodeData = {
@@ -51,6 +52,12 @@ export type FlowNodeData = {
     qa_min_call_duration?: number;
     qa_voicemail_calls?: boolean;
     qa_sample_rate?: number;
+    // DTMF menu node specific
+    mode?: 'single_key' | 'collect_digits';
+    digit_mappings?: Array<{ digit: string; edge_label: string }>;
+    store_variable?: string;
+    num_digits?: number;
+    terminator?: string;
     // Tools - array of tool UUIDs that can be invoked by this node
     tool_uuids?: string[];
     // Per-node MCP function allowlist: { toolUuid: [raw MCP tool name, ...] }.

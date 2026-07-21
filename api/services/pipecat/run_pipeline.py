@@ -918,6 +918,7 @@ async def _run_pipeline_impl(
         max_duration_end_task_callback=engine.create_max_duration_callback(),
         generation_started_callback=engine.create_generation_started_callback(),
         llm_text_frame_callback=engine.handle_llm_text_frame,
+        dtmf_callback=engine.handle_dtmf_input,
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()

@@ -7,6 +7,7 @@ from api.schemas.workflow_configurations import DEFAULT_MAX_CALL_DURATION_SECOND
 from pipecat.frames.frames import (
     Frame,
     HeartbeatFrame,
+    InputDTMFFrame,
     LLMFullResponseStartFrame,
     LLMTextFrame,
     StartFrame,
@@ -28,6 +29,7 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
         max_duration_end_task_callback: Optional[Callable[[], Awaitable[None]]] = None,
         generation_started_callback: Optional[Callable[[], Awaitable[None]]] = None,
         llm_text_frame_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+        dtmf_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ):
         super().__init__()
         self._start_time = None
@@ -35,6 +37,10 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
         self._max_duration_end_task_callback = max_duration_end_task_callback
         self._generation_started_callback = generation_started_callback
         self._llm_text_frame_callback = llm_text_frame_callback
+        # Invoked with the raw keypad digit (e.g. "1", "#") for every
+        # InputDTMFFrame. The engine uses it to deterministically fire an edge
+        # when the current node is a DTMF menu node.
+        self._dtmf_callback = dtmf_callback
         self._end_task_frame_pushed = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -53,6 +59,16 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
             # Include TTSSpeakFrame here since for static nodes, we send TTSSpeakFrame
             # which can act as reference while fixing the aggregated trascript
             await self._llm_text_frame_callback(frame.text)
+        elif isinstance(frame, InputDTMFFrame) and self._dtmf_callback:
+            # KNOWN INTEGRATION RISK: this processor sits downstream of the
+            # DTMFAggregator (gated by ENABLE_DTMF_INPUT). The raw InputDTMFFrame
+            # reaches us here BEFORE the aggregator emits its
+            # TranscriptionFrame("DTMF: <digits>"). We fire the deterministic
+            # engine handler off the raw frame. For a dtmfMenu node the LLM has
+            # no transition functions, and the deterministic set_node re-primes
+            # the context, so the aggregator's later transcription is benign for
+            # MVP. Revisit if DTMF ever needs to reach the LLM on the same node.
+            await self._dtmf_callback(frame.button.value)
 
         await self.push_frame(frame, direction)
 
